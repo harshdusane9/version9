@@ -170,7 +170,8 @@
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      ws = new WebSocket(`ws://${window.location.host}/audio`);
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      ws = new WebSocket(`${protocol}//${window.location.host}/audio`);
       mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
 
       // ✅ Smoothly display text as it's recognized
