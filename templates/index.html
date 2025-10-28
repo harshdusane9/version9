@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Interview Trainer</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: #f9fafb;
+      font-family: "Inter", sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .fade-in { animation: fadeIn 0.5s ease-in-out; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .gradient-text {
+      background: linear-gradient(90deg, #2563eb, #7c3aed);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .loading {
+      border: 4px solid #e5e7eb;
+      border-top: 4px solid #2563eb;
+      border-radius: 50%;
+      width: 32px; height: 32px;
+      animation: spin 0.9s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin { 0%{transform:rotate(0)}100%{transform:rotate(360deg)} }
+  </style>
+</head>
+<body>
+  <div class="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-8">
+    <h1 class="text-3xl font-bold mb-2 gradient-text">AI Interview Trainer</h1>
+    <p class="text-gray-600 mb-6">Answer one question at a time — by typing or speaking. Get instant evaluation and feedback.</p>
+
+    <div class="mb-6">
+      <label for="job" class="block text-lg font-semibold mb-2 text-gray-800">Job description</label>
+      <textarea id="job" rows="3" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" placeholder="e.g., Product Manager at Spotify"></textarea>
+    </div>
+
+    <div class="flex gap-3 mb-6">
+      <button id="startBtn" class="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition-all">Start Interview</button>
+      <button id="resetBtn" class="bg-gray-200 px-5 py-2 rounded-md hover:bg-gray-300 transition-all">Reset</button>
+    </div>
+
+    <div id="loading" class="hidden text-center">
+      <div class="loading"></div>
+      <p class="text-gray-500 mt-2">Preparing your interview questions...</p>
+    </div>
+
+    <div id="qaSection" class="hidden fade-in">
+      <h2 id="questionHeader" class="text-lg font-semibold mb-2 text-gray-800"></h2>
+      <p id="questionText" class="text-gray-800 mb-4"></p>
+
+      <label for="answer" class="block text-gray-700 font-medium mb-2">Your answer</label>
+      <textarea id="answer" rows="5" class="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"></textarea>
+
+      <div class="flex gap-3 mt-4">
+        <button id="micBtn" class="bg-red-500 text-white px-5 py-2 rounded-md hover:bg-red-600 transition-all">🎙️ Speak</button>
+        <button id="submitBtn" class="bg-green-600 text-white px-5 py-2 rounded-md hover:bg-green-700 transition-all">Submit Answer</button>
+        <button id="nextBtn" class="bg-blue-500 text-white px-5 py-2 rounded-md hover:bg-blue-600 transition-all hidden">Next Question</button>
+      </div>
+    </div>
+
+    <div id="evaluation" class="hidden mt-6 bg-white p-6 rounded-lg shadow-md fade-in">
+      <h2 class="text-xl font-semibold mb-4 text-gray-800">Evaluation Result</h2>
+      <div id="scoreGrid" class="grid grid-cols-2 gap-4"></div>
+      <p id="totalScore" class="text-lg font-semibold text-gray-800 mt-4"></p>
+
+      <div id="feedbackSection" class="mt-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Feedback</h3>
+        <p id="summaryText" class="text-gray-700 leading-relaxed"></p>
+      </div>
+
+      <div id="tipsSection" class="mt-6">
+        <h3 class="text-lg font-semibold text-gray-800 mb-2">Improvement Tips</h3>
+        <ul id="improvementList" class="list-disc list-inside text-gray-700"></ul>
+      </div>
+    </div>
+
+    <div id="summaryReport" class="hidden mt-8 bg-white p-6 rounded-xl shadow-md fade-in">
+      <h2 class="text-2xl font-bold mb-4 gradient-text">Final Summary Report</h2>
+      <p id="overallScore" class="text-lg text-gray-800 font-semibold mb-2"></p>
+      <p id="questionCount" class="text-gray-700 mb-2"></p>
+      <div id="averageBreakdown" class="text-gray-700 mb-4"></div>
+      <p id="finalRemarks" class="text-gray-800 font-medium mt-4"></p>
+    </div>
+
+    <p class="text-gray-500 mt-8 text-sm text-center">Practice regularly — clarity, confidence, and structure improve with time.</p>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById("startBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const loadingDiv = document.getElementById("loading");
+    const qaSection = document.getElementById("qaSection");
+    const questionHeader = document.getElementById("questionHeader");
+    const questionText = document.getElementById("questionText");
+    const submitBtn = document.getElementById("submitBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    const micBtn = document.getElementById("micBtn");
+    const evaluationDiv = document.getElementById("evaluation");
+    const summaryDiv = document.getElementById("summaryReport");
+    const answerBox = document.getElementById("answer");
+
+    let ws, mediaRecorder;
+    let questions = [], currentIndex = 0, totalScores = [], categoryScores = {};
+
+    startBtn.addEventListener("click", async () => {
+      const job = document.getElementById("job").value.trim();
+      if (!job) return alert("Please enter a job description.");
+      loadingDiv.classList.remove("hidden");
+
+      try {
+        const res = await fetch("/generate", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({job_description: job})
+        });
+        const data = await res.json();
+        loadingDiv.classList.add("hidden");
+
+        if (data.questions) {
+          questions = data.questions;
+          currentIndex = 0; totalScores = []; categoryScores = {};
+          showQuestion();
+        } else alert("Failed to load questions.");
+      } catch {
+        loadingDiv.classList.add("hidden");
+        alert("Error generating questions.");
+      }
+    });
+
+    function showQuestion() {
+      qaSection.classList.remove("hidden");
+      evaluationDiv.classList.add("hidden");
+      summaryDiv.classList.add("hidden");
+      const q = questions[currentIndex];
+      questionHeader.innerText = `Question ${currentIndex+1} of ${questions.length}`;
+      questionText.innerText = q;
+      answerBox.value = "";
+      submitBtn.classList.remove("hidden");
+      nextBtn.classList.add("hidden");
+      
+      // ✅ Ensure old audio stream is closed before new question
+      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+      if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    }
+
+    // ✅ Speech-to-text with safe restart handling
+    // ✅ Speech-to-text with smoother real-time updates
+  micBtn.addEventListener("click", async () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.close();
+      micBtn.textContent = "🎙️ Speak";
+      return;
+    }
+
+    let finalTranscript = "";
+    let interimTranscript = "";
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      ws = new WebSocket(`ws://${window.location.host}/audio`);
+      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+      // ✅ Smoothly display text as it's recognized
+      let typingTimeout;
+      function showLiveText(finalText, interimText) {
+        clearTimeout(typingTimeout);
+        answerBox.value = finalText + (interimText ? " " + interimText : "");
+        typingTimeout = setTimeout(() => {
+          answerBox.scrollTop = answerBox.scrollHeight;
+        }, 50);
+      }
+
+      ws.onmessage = (e) => {
+        if (e.data.startsWith("[FINAL]")) {
+          const text = e.data.replace("[FINAL]", "").trim();
+          finalTranscript += (finalTranscript ? " " : "") + text;
+          interimTranscript = "";
+          showLiveText(finalTranscript, interimTranscript);
+        } else if (e.data.startsWith("[INTERIM]")) {
+          const text = e.data.replace("[INTERIM]", "").trim();
+          interimTranscript = text;
+          showLiveText(finalTranscript, interimTranscript);
+        }
+      };
+
+    mediaRecorder.ondataavailable = (e) => ws.send(e.data);
+    mediaRecorder.start(100); // ✅ faster 100ms chunks
+    micBtn.textContent = "🛑 Stop";
+  } catch (err) {
+    alert("Microphone access denied.");
+  }
+});
+
+
+
+    submitBtn.addEventListener("click", async () => {
+      const question = questions[currentIndex];
+      const answer = answerBox.value.trim();
+      if (!answer) return alert("Please type or speak your answer first.");
+
+      submitBtn.disabled = true;
+      submitBtn.innerText = "Evaluating...";
+      evaluationDiv.classList.add("hidden");
+
+      const res = await fetch("/evaluate", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({question, answer})
+      });
+      const data = await res.json();
+      submitBtn.disabled = false;
+      submitBtn.innerText = "Submit Answer";
+
+      if (data.evaluation) showEvaluation(data.evaluation);
+      else alert("Error evaluating answer.");
+    });
+
+    function showEvaluation(ev) {
+      evaluationDiv.classList.remove("hidden");
+      evaluationDiv.classList.add("fade-in");
+      const grid = document.getElementById("scoreGrid");
+      grid.innerHTML = "";
+      let total = 0, count = 0;
+
+      if (ev.scores) {
+        Object.entries(ev.scores).forEach(([k,v])=>{
+          grid.innerHTML += `<div class="bg-gray-50 p-3 rounded-md shadow-sm flex justify-between">
+            <span class="font-medium text-gray-800">${k}</span>
+            <span class="text-blue-600 font-semibold">${v}/10</span></div>`;
+          total+=v; count++;
+          if(!categoryScores[k]) categoryScores[k]=[];
+          categoryScores[k].push(v);
+        });
+      }
+      const totalPercent = ev.total || Math.round((total/(count*10))*100);
+      totalScores.push(totalPercent);
+      document.getElementById("totalScore").innerHTML=`Total Score: <span class='text-blue-600'>${totalPercent}/100</span>`;
+      document.getElementById("summaryText").innerText = ev.summary || "";
+      const tipsList = document.getElementById("improvementList");
+      tipsList.innerHTML = "";
+      if (ev.improvement_tips) ev.improvement_tips.forEach(t => tipsList.innerHTML += `<li>${t}</li>`);
+      nextBtn.classList.remove("hidden");
+    }
+
+    nextBtn.addEventListener("click", ()=>{
+      if(currentIndex < questions.length-1){ currentIndex++; showQuestion(); }
+      else { qaSection.classList.add("hidden"); evaluationDiv.classList.add("hidden"); showSummaryReport(); }
+    });
+
+    function showSummaryReport() {
+      summaryDiv.classList.remove("hidden");
+      summaryDiv.classList.add("fade-in");
+      const avgScore = Math.round(totalScores.reduce((a,b)=>a+b,0)/totalScores.length);
+      document.getElementById("overallScore").innerHTML=`Overall Score: <span class='text-blue-600 font-semibold'>${avgScore}/100</span>`;
+      document.getElementById("questionCount").innerText=`Questions Answered: ${totalScores.length}`;
+      const breakdownDiv=document.getElementById("averageBreakdown");
+      breakdownDiv.innerHTML="<strong>Category Averages:</strong><br>";
+      for(const[k,v] of Object.entries(categoryScores)){
+        const avg=(v.reduce((a,b)=>a+b,0)/v.length).toFixed(1);
+        breakdownDiv.innerHTML+=`${k}: <span class='text-blue-600 font-medium'>${avg}/10</span><br>`;
+      }
+      document.getElementById("finalRemarks").innerText =
+        avgScore>=80 ? "Excellent! You're interview-ready." :
+        avgScore>=60 ? "Good job — refine structure & clarity." :
+        "Keep practicing for stronger communication and depth.";
+    }
+
+    resetBtn.addEventListener("click",()=>location.reload());
+  </script>
+</body>
+</html>
