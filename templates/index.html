@@ -141,69 +141,101 @@
     });
 
     function showQuestion() {
-      qaSection.classList.remove("hidden");
-      evaluationDiv.classList.add("hidden");
-      summaryDiv.classList.add("hidden");
-      const q = questions[currentIndex];
-      questionHeader.innerText = `Question ${currentIndex+1} of ${questions.length}`;
-      questionText.innerText = q;
-      answerBox.value = "";
-      submitBtn.classList.remove("hidden");
-      nextBtn.classList.add("hidden");
-      
-      // ✅ Ensure old audio stream is closed before new question
-      if (ws && ws.readyState === WebSocket.OPEN) ws.close();
-      if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
-    }
+    qaSection.classList.remove("hidden");
+    evaluationDiv.classList.add("hidden");
+    summaryDiv.classList.add("hidden");
+    const q = questions[currentIndex];
+    questionHeader.innerText = `Question ${currentIndex + 1} of ${questions.length}`;
+    questionText.innerText = q;
+    answerBox.value = "";
+    submitBtn.classList.remove("hidden");
+    nextBtn.classList.add("hidden");
+
+    // ✅ Ensure old audio stream is closed before new question
+    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+
+    // ✅ Reset speech transcripts for new question
+    finalTranscript = "";
+    interimTranscript = "";
+  }
+
 
     // ✅ Speech-to-text with safe restart handling
     // ✅ Speech-to-text with smoother real-time updates
-  micBtn.addEventListener("click", async () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.close();
-      micBtn.textContent = "🎙️ Speak";
-      return;
-    }
+   // ✅ Improved Speech-to-Text: start/stop safe + keeps previous transcript
+let micStream;
+let finalTranscript = "";
+let interimTranscript = "";
+let isRecording = false;
 
-    let finalTranscript = "";
-    let interimTranscript = "";
+micBtn.addEventListener("click", async () => {
+  // If already recording → stop cleanly
+  if (isRecording) {
+    isRecording = false;
+    mediaRecorder?.stop();
+    ws?.close();
+    micStream?.getTracks().forEach(t => t.stop());
+    micBtn.textContent = "🎙️ Speak";
+    return;
+  }
 
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      ws = new WebSocket(`${protocol}//${window.location.host}/audio`);
-      mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+  // Start new recording session
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    ws = new WebSocket(`ws://${window.location.host}/audio`);
+    isRecording = true;
+    micBtn.textContent = "🛑 Stop";
 
-      // ✅ Smoothly display text as it's recognized
-      let typingTimeout;
-      function showLiveText(finalText, interimText) {
-        clearTimeout(typingTimeout);
-        answerBox.value = finalText + (interimText ? " " + interimText : "");
-        typingTimeout = setTimeout(() => {
-          answerBox.scrollTop = answerBox.scrollHeight;
-        }, 50);
-      }
+    ws.onopen = () => {
+      console.log("🎧 WebSocket connected");
+      mediaRecorder = new MediaRecorder(micStream, { mimeType: "audio/webm" });
 
-      ws.onmessage = (e) => {
-        if (e.data.startsWith("[FINAL]")) {
-          const text = e.data.replace("[FINAL]", "").trim();
-          finalTranscript += (finalTranscript ? " " : "") + text;
-          interimTranscript = "";
-          showLiveText(finalTranscript, interimTranscript);
-        } else if (e.data.startsWith("[INTERIM]")) {
-          const text = e.data.replace("[INTERIM]", "").trim();
-          interimTranscript = text;
-          showLiveText(finalTranscript, interimTranscript);
-        }
+      mediaRecorder.ondataavailable = (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(e.data);
       };
 
-    mediaRecorder.ondataavailable = (e) => ws.send(e.data);
-    mediaRecorder.start(100); // ✅ faster 100ms chunks
-    micBtn.textContent = "🛑 Stop";
+      // Send audio every 200ms for smoother near real-time text
+      mediaRecorder.start(200);
+    };
+
+    ws.onmessage = (e) => {
+      if (e.data.startsWith("[FINAL]")) {
+        const text = e.data.replace("[FINAL]", "").trim();
+        // Append to previous text instead of resetting
+        finalTranscript += (finalTranscript ? " " : "") + text;
+        interimTranscript = "";
+        answerBox.value = finalTranscript;
+      } else if (e.data.startsWith("[INTERIM]")) {
+        const text = e.data.replace("[INTERIM]", "").trim();
+        interimTranscript = text;
+        answerBox.value = finalTranscript + " " + interimTranscript;
+      }
+      answerBox.scrollTop = answerBox.scrollHeight;
+    };
+
+    ws.onclose = () => {
+      console.log("🔌 WebSocket closed");
+      mediaRecorder?.stop();
+      micStream?.getTracks().forEach(t => t.stop());
+      micBtn.textContent = "🎙️ Speak";
+      isRecording = false;
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      micBtn.textContent = "🎙️ Speak";
+      isRecording = false;
+    };
+
   } catch (err) {
-    alert("Microphone access denied.");
+    console.error("Mic error:", err);
+    alert("Microphone access denied or unavailable.");
+    micBtn.textContent = "🎙️ Speak";
+    isRecording = false;
   }
 });
+
 
 
 
